@@ -3,6 +3,7 @@
 #include <pcap.h>
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
+#include <netinet/ip.h>
 
 //gcc three.c -lpcap
 
@@ -14,18 +15,11 @@ void print_dest_mac(const u_char* packet);
 void print_sender_ip(const u_char* packet);
 void print_dest_ip(const u_char* packet);
 
-/* Ethernet addresses are 6 bytes */
-//#define ETHER_ADDR_LEN	6
-
-	/* Ethernet header */
-	struct sniff_ethernet {
-		u_char ether_dhost[ETHER_ADDR_LEN]; /* Destination host address */
-		u_char ether_shost[ETHER_ADDR_LEN]; /* Source host address */
-		u_short ether_type; /* IP? ARP? RARP? etc */
-	};
-
+/* 
+	IP and TCP structs based off of http://yuba.stanford.edu/~casado/pcap/section4.html
+*/
 	/* IP header */
-	struct sniff_ip {
+	struct my_ip {
 		u_char ip_vhl;		/* version << 4 | header length >> 2 */
 		u_char ip_tos;		/* type of service */
 		u_short ip_len;		/* total length */
@@ -68,7 +62,7 @@ void print_dest_ip(const u_char* packet);
 		u_short th_urp;		/* urgent pointer */
 };
 
-int count = 1;
+int count = 0;
 
 int main(int argc, char *argv[]) {
 
@@ -94,10 +88,11 @@ int main(int argc, char *argv[]) {
 void my_packet_handler(u_char *args, const struct pcap_pkthdr* header, const u_char* packet) {
 
 	struct ether_header *eth_header = (struct ether_header *) packet;
+	count++;
 
+	//printf("\nPacket Type: ");
 	print_packet_info(packet, *header);
 
-	printf("\nPacket Type: ");
 
 
 
@@ -111,36 +106,29 @@ void my_packet_handler(u_char *args, const struct pcap_pkthdr* header, const u_c
 
 
 	if (ntohs(eth_header->ether_type) == ETHERTYPE_IP) {
-		printf("IP\n");
+
+		struct ether_header *eth_header = (struct ether_header *) packet;
+		struct my_ip *ip = (struct my_ip*)(packet + 14);
+		u_int size_ip = IP_HL(ip)*4;
+		struct sniff_tcp *tcp = (struct sniff_tcp*)(packet + 14 + size_ip);
+		u_int size_tcp = TH_OFF(tcp)*4;
+
+
+		//const char *payload; /* Packet payload */
 
 
 
+		//size_ip = IP_HL(ip)*4;
+		if (size_ip < 20) {
+			printf("   * Invalid IP header length: %u bytes\n", size_ip);
+			return;
+		}
 
-
-#define SIZE_ETHERNET 14
-
-	const struct sniff_ethernet *ethernet; /* The ethernet header */
-	const struct sniff_ip *ip; /* The IP header */
-	const struct sniff_tcp *tcp; /* The TCP header */
-	const char *payload; /* Packet payload */
-
-	u_int size_ip;
-	u_int size_tcp;
-
-		ethernet = (struct sniff_ethernet*)(packet);
-	ip = (struct sniff_ip*)(packet + SIZE_ETHERNET);
-	size_ip = IP_HL(ip)*4;
-	if (size_ip < 20) {
-		printf("   * Invalid IP header length: %u bytes\n", size_ip);
-		return;
-	}
-	tcp = (struct sniff_tcp*)(packet + SIZE_ETHERNET + size_ip);
-	size_tcp = TH_OFF(tcp)*4;
-	if (size_tcp < 20) {
-		printf("   * Invalid TCP header length: %u bytes\n", size_tcp);
-		return;
-	}
-	payload = (u_char *)(packet + SIZE_ETHERNET + size_ip + size_tcp);
+		if (size_tcp < 20) {
+			printf("   * Invalid TCP header length: %u bytes\n", size_tcp);
+			return;
+		}
+		//payload = (u_char *)(packet + 14 + size_ip + size_tcp);
 
 		printf("source port: %d\n", ntohs(tcp->th_sport));
 		printf("target port: %d\n", ntohs(tcp->th_dport));
@@ -148,36 +136,19 @@ void my_packet_handler(u_char *args, const struct pcap_pkthdr* header, const u_c
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 	}
 	else if (ntohs(eth_header->ether_type) == ETHERTYPE_ARP) {
-		printf("ARP\n");
+		//printf("ARP\n");
 		arpspoof_detection( packet );
 	}
 	else  if (ntohs(eth_header->ether_type) == ETHERTYPE_REVARP) {
-		printf("Reverse ARP\n");
+		//printf("Reverse ARP\n");
 	}
 
 	else {
 		printf("Packet Type Error!\n");
 	}
 
-	count++;
 }
 
 void arpspoof_detection( const u_char* packet ) {
@@ -223,10 +194,7 @@ void portscan() {
 }
 
 void synflood_detection() {
-
 }
-
-
 void print_packet_info(const u_char *packet, struct pcap_pkthdr packet_header) {
 
 	printf("\n");
@@ -239,9 +207,7 @@ void print_packet_info(const u_char *packet, struct pcap_pkthdr packet_header) {
 	print_dest_mac(packet);
 	print_sender_ip(packet);
 	print_dest_ip(packet);
-
 }
-
 void print_sender_mac(const u_char* packet) {
 	struct ether_arp* arpheader = (struct ether_arp *)(packet +14);
 	printf("\t\tSender MAC: ");
@@ -270,7 +236,7 @@ void print_sender_ip(const u_char* packet) {
 	int i = 0;
 	for (i=0; i<4; i++) {
 		printf("%d",arpheader->arp_spa[i]);
-		if(i < 5)
+		if(i < 3)
 			printf(".");
 	}
 	printf("\n");
@@ -281,7 +247,7 @@ void print_dest_ip(const u_char* packet) {
 	int i = 0;
 	for (i = 0; i < 4; i++) {
 		printf("%d", arpheader->arp_tpa[i]);
-		if(i < 5)
+		if(i < 3)
 			printf(".");
 	}
 	printf("\n");
